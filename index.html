@@ -2,47 +2,80 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>MindAR Desktop Fix</title>
-
-  <script src="aframe.min.js"></script>
-  <script src="mindar-image-aframe.prod.js"></script>
-
-  <style>
-    body { margin: 0; overflow: hidden; }
-  </style>
+  <title>AFrame WebXR AR</title>
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
 </head>
 
-<body>
+<body style="margin:0; overflow:hidden;">
 
 <a-scene
-  mindar-image="imageTargetSrc: book.mind;"
   embedded
-  vr-mode-ui="false"
-  device-orientation-permission-ui="false"
-  renderer="colorManagement: true, physicallyCorrectLights"
-  color-space="sRGB"
+  vr-mode-ui="enabled: false"
+  renderer="logarithmicDepthBuffer: true;"
+  webxr="requiredFeatures: hit-test, local-floor"
 >
 
-  <a-assets>
-    <a-asset-item id="modelAsset" src="Nike.glb"></a-asset-item>
-  </a-assets>
+  <!-- Camera -->
+  <a-camera></a-camera>
 
-  <a-camera position="0 0 0" look-controls="false"></a-camera>
+  <!-- Reticle -->
+  <a-entity id="reticle"
+            geometry="primitive: ring; radiusInner: 0.05; radiusOuter: 0.07"
+            material="color: green; shader: flat"
+            rotation="-90 0 0"
+            visible="false">
+  </a-entity>
 
-  <a-entity mindar-image-target="targetIndex: 0">
-
-    <a-entity
-      gltf-model="#modelAsset"
-      position="0 0 0"
-      rotation="0 0 0"
-      scale="0 0 0"
-      animation="property: scale; to: 0.5 0.5 0.5; dur: 800; easing: easeOutBack; startEvents: targetFound"
-      animation__hide="property: scale; to: 0 0 0; dur: 300; easing: easeInBack; startEvents: targetLost">
-    </a-entity>
-
+  <!-- GLB Model -->
+  <a-entity id="model"
+            gltf-model="url(model.glb)"
+            visible="false"
+            scale="0.5 0.5 0.5">
   </a-entity>
 
 </a-scene>
+
+<script>
+let scene = document.querySelector("a-scene");
+let model = document.querySelector("#model");
+let reticle = document.querySelector("#reticle");
+
+scene.addEventListener("enter-vr", async () => {
+  const xrSession = scene.renderer.xr.getSession();
+  const viewerSpace = await xrSession.requestReferenceSpace("viewer");
+  const hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+
+  scene.renderer.xr.addEventListener("sessionstart", () => {
+    scene.renderer.xr.getReferenceSpace();
+  });
+
+  scene.renderer.xr.getSession().requestAnimationFrame(function hitTest(frame) {
+    let referenceSpace = scene.renderer.xr.getReferenceSpace();
+    let hitTestResults = frame.getHitTestResults(hitTestSource);
+
+    if (hitTestResults.length > 0) {
+      const hit = hitTestResults[0];
+      const pose = hit.getPose(referenceSpace);
+
+      reticle.setAttribute("visible", true);
+      reticle.setAttribute("position", {
+        x: pose.transform.position.x,
+        y: pose.transform.position.y,
+        z: pose.transform.position.z
+      });
+    }
+
+    scene.renderer.xr.getSession().requestAnimationFrame(hitTest);
+  });
+});
+
+scene.addEventListener("click", () => {
+  if (!reticle.getAttribute("visible")) return;
+
+  model.setAttribute("position", reticle.getAttribute("position"));
+  model.setAttribute("visible", true);
+});
+</script>
 
 </body>
 </html>
