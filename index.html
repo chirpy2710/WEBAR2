@@ -1,82 +1,120 @@
-<!DOCTYPE html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <title>AFrame WebXR AR</title>
-  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-</head>
+  <head>
+    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <script src="./components.js"></script>
+    <style>
+      #overlay {
+        position: fixed;
+        top: 100px;
+        padding: 10px;
+        z-index: 1001;
+      }
 
-<body style="margin:0; overflow:hidden;">
+      #instructions {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.5);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 20px;
+        font-family: Arial, sans-serif;
+        font-size: 13px;
+        text-align: center;
+        z-index: 1001;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <a-scene
+      webxr="requiredFeatures:hit-test; optionalFeatures:dom-overlay; referenceSpaceType:local; overlayElement:#overlay"
+      background="transparent: true">
 
-<a-scene
-  embedded
-  vr-mode-ui="enabled: false"
-  renderer="logarithmicDepthBuffer: true;"
-  webxr="requiredFeatures: hit-test, local-floor"
->
+      <a-entity
+        id="box"
+        gltf-model="https://raw.githubusercontent.com/chirpy2710/ARwebnew/main/model.glb"
+        scale="0.1 0.1 0.1"
+        visible="false">
+      </a-entity>
 
-  <!-- Camera -->
-  <a-camera></a-camera>
+      <a-entity
+        ar-reticle
+        geometry="primitive: ring; radiusInner: 0.15; radiusOuter: 0.2"
+        rotation="-90 0 0"
+        visible="false">
+      </a-entity>
+    </a-scene>
 
-  <!-- Reticle -->
-  <a-entity id="reticle"
-            geometry="primitive: ring; radiusInner: 0.05; radiusOuter: 0.07"
-            material="color: green; shader: flat"
-            rotation="-90 0 0"
-            visible="false">
-  </a-entity>
+    <div id="overlay"></div>
+    <div id="instructions">👆 Tap to place &nbsp;|&nbsp; 🤏 Pinch to scale &nbsp;|&nbsp; 👆👆 Two fingers to rotate</div>
 
-  <!-- GLB Model -->
-  <a-entity id="model"
-            gltf-model="url(Nike.glb)"
-            visible="false"
-            scale="0.5 0.5 0.5">
-  </a-entity>
+    <script>
+      const model = document.getElementById('box');
 
-</a-scene>
+      // Current transform state
+      let currentScale = 0.1;
+      let currentRotationY = 0;
 
-<script>
-let scene = document.querySelector("a-scene");
-let model = document.querySelector("#model");
-let reticle = document.querySelector("#reticle");
+      // Touch state
+      let lastPinchDistance = null;
+      let lastRotationAngle = null;
+      let activeTouches = [];
 
-scene.addEventListener("enter-vr", async () => {
-  const xrSession = scene.renderer.xr.getSession();
-  const viewerSpace = await xrSession.requestReferenceSpace("viewer");
-  const hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+      function getTouchDistance(t1, t2) {
+        const dx = t1.clientX - t2.clientX;
+        const dy = t1.clientY - t2.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
 
-  scene.renderer.xr.addEventListener("sessionstart", () => {
-    scene.renderer.xr.getReferenceSpace();
-  });
+      function getTouchAngle(t1, t2) {
+        return Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * (180 / Math.PI);
+      }
 
-  scene.renderer.xr.getSession().requestAnimationFrame(function hitTest(frame) {
-    let referenceSpace = scene.renderer.xr.getReferenceSpace();
-    let hitTestResults = frame.getHitTestResults(hitTestSource);
-
-    if (hitTestResults.length > 0) {
-      const hit = hitTestResults[0];
-      const pose = hit.getPose(referenceSpace);
-
-      reticle.setAttribute("visible", true);
-      reticle.setAttribute("position", {
-        x: pose.transform.position.x,
-        y: pose.transform.position.y,
-        z: pose.transform.position.z
+      document.addEventListener('touchstart', (e) => {
+        activeTouches = Array.from(e.touches);
+        if (activeTouches.length === 2) {
+          lastPinchDistance = getTouchDistance(activeTouches[0], activeTouches[1]);
+          lastRotationAngle = getTouchAngle(activeTouches[0], activeTouches[1]);
+        }
       });
-    }
 
-    scene.renderer.xr.getSession().requestAnimationFrame(hitTest);
-  });
-});
+      document.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        activeTouches = Array.from(e.touches);
 
-scene.addEventListener("click", () => {
-  if (!reticle.getAttribute("visible")) return;
+        if (activeTouches.length === 2) {
+          const isVisible = model.getAttribute('visible');
+          if (!isVisible) return;
 
-  model.setAttribute("position", reticle.getAttribute("position"));
-  model.setAttribute("visible", true);
-});
-</script>
+          // --- Pinch to Scale ---
+          const newDistance = getTouchDistance(activeTouches[0], activeTouches[1]);
+          if (lastPinchDistance !== null) {
+            const scaleFactor = newDistance / lastPinchDistance;
+            currentScale = Math.min(Math.max(currentScale * scaleFactor, 0.02), 2.0);
+            model.setAttribute('scale', `${currentScale} ${currentScale} ${currentScale}`);
+          }
+          lastPinchDistance = newDistance;
 
-</body>
+          // --- Two Finger Rotate ---
+          const newAngle = getTouchAngle(activeTouches[0], activeTouches[1]);
+          if (lastRotationAngle !== null) {
+            const deltaAngle = newAngle - lastRotationAngle;
+            currentRotationY += deltaAngle;
+            model.setAttribute('rotation', `0 ${currentRotationY} 0`);
+          }
+          lastRotationAngle = newAngle;
+        }
+      }, { passive: false });
+
+      document.addEventListener('touchend', (e) => {
+        activeTouches = Array.from(e.touches);
+        if (activeTouches.length < 2) {
+          lastPinchDistance = null;
+          lastRotationAngle = null;
+        }
+      });
+    </script>
+  </body>
 </html>
-
